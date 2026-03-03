@@ -64,7 +64,7 @@ kubectl -n kuberay-system get pods
 
 ## 2. Update the HuggingFace Token
 
-At the time of writing, the DeepSeek model is not gated by an HF token so this part doesn't seem to matter, but if you want to try other models, it probably will.  
+At the time of writing, the DeepSeek model is not gated by an HF token so you don't need to request per-model access, but if you want to try other models, you might need to (check on the model's HuggingFace page to verify its access requirements). Regardless, HuggingFace still needs you to have a valid token when downloading any model.  
 The manifest (`ray-service.llm-serve.yaml`) contains a `Secret` with a placeholder token. Replace it before applying the yaml, by editing the `stringData.hf_token` field in the yaml file directly.
 
 ---
@@ -72,7 +72,7 @@ The manifest (`ray-service.llm-serve.yaml`) contains a `Secret` with a placehold
 ## 3. Deploy the RayService
 
 ```bash
-kubectl apply -f ray-service.llm-serve.yaml
+kubectl apply -f deepseek-ray-service.yaml
 ```
 
 This creates:
