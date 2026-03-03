@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: huggingface-token
+type: Opaque
+stringData:
+  # Replace with your actual Hugging Face token
+  HF_TOKEN: "hf_xxxxxxxx"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-cache-pvc
+spec:
+  #replace with the name of your storage class as found with kubectl get sc
+  storageClassName: crusoe-csi-driver-fs-sc
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      #minimum volume size 1TB when using Shared Volumes as the underlying storage
+      storage: 1Ti
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-qwen
+  labels:
+    app: vllm-qwen
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-qwen
+  template:
+    metadata:
+      labels:
+        app: vllm-qwen
+    spec:
+      volumes:
+        # Mount persistent storage for the HF cache
+        - name: cache-volume
+          persistentVolumeClaim:
+            claimName: model-cache-pvc
+        # Mount an in-memory volume for shared memory (/dev/shm)
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: "160Gi"
+      containers:
+        - name: vllm-server
+          image: abesharphpe/qwen35-vllm:v1
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              nvidia.com/gpu: "8"
+              memory: "512Gi"
+              cpu: "128"
+            limits:
+              nvidia.com/gpu: "8" # Allocate GPUs (e.g., 2x A100s)
+              memory: "512Gi"
+              cpu: "128"
+          env:
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: huggingface-token
+                  key: HF_TOKEN
+          args:
+            - "Qwen/Qwen3.5-35B-A3B"
+            - "--tensor-parallel-size"
+            - "8" # must match the nvidia.com/gpu limit above
+            - "--trust-remote-code"
+            - "--max-model-len"
+            - "8192" # Optional: Limit max sequence length to save VRAM
+            - "--gpu-memory-utilization"
+            - "0.90"
+          ports:
+            - containerPort: 8000
+              name: http
+          volumeMounts:
+            - mountPath: /root/.cache/huggingface
+              name: cache-volume
+            - mountPath: /dev/shm
+              name: dshm
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-qwen-service
+spec:
+  # change to LoadBalancer to expose as a public service
+  # also add rules to your Crusoe firewall to allow access to port 8000 and the corresponding NodePort assigned by K8S
+  # for production use cases, consider an ingress controller such as Nginx and TLS configuration
+  type: ClusterIP
+  selector:
+    app: vllm-qwen
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
